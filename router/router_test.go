@@ -1,6 +1,7 @@
 package router
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -307,4 +308,159 @@ func TestRouter_Match(t *testing.T) {
 			t.Errorf("期望没有查询参数，实际得到 %d 个", len(ctx.QueryParams))
 		}
 	})
+}
+
+func TestMiddlewareOrder(t *testing.T) {
+	order := make([]string, 0)
+
+	rootMW := func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) (*Response, error) {
+			order = append(order, "root")
+			return next(ctx)
+		}
+	}
+
+	groupMW := func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) (*Response, error) {
+			order = append(order, "group")
+			return next(ctx)
+		}
+	}
+
+	routeMW := func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) (*Response, error) {
+			order = append(order, "route")
+			return next(ctx)
+		}
+	}
+
+	router := NewRouter()
+	router.Use(rootMW)
+
+	api := router.Group("/api", groupMW)
+	api.Get("/items/{id}", func(ctx *Context) (*Response, error) {
+		order = append(order, "handler")
+		return NewResponse(ctx.PathParams["id"]), nil
+	}, routeMW)
+
+	ctx, handler, err := router.Match("GET", "/api/items/99")
+	if err != nil {
+		t.Fatalf("期望匹配成功，但出现错误: %v", err)
+	}
+
+	if _, err := handler(ctx); err != nil {
+		t.Fatalf("期望处理成功，但出现错误: %v", err)
+	}
+
+	expected := []string{"root", "group", "route", "handler"}
+	if !reflect.DeepEqual(order, expected) {
+		t.Fatalf("中间件执行顺序错误，期望 %v，实际 %v", expected, order)
+	}
+}
+
+func TestRouteLevelMiddlewareWithoutGroup(t *testing.T) {
+	order := make([]string, 0)
+
+	routeMW := func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) (*Response, error) {
+			order = append(order, "route")
+			return next(ctx)
+		}
+	}
+
+	router := NewRouter()
+	router.Get("/ping", func(ctx *Context) (*Response, error) {
+		order = append(order, "handler")
+		return NewResponse("pong"), nil
+	}, routeMW)
+
+	ctx, handler, err := router.Match("GET", "/ping")
+	if err != nil {
+		t.Fatalf("期望匹配成功，但出现错误: %v", err)
+	}
+
+	if _, err := handler(ctx); err != nil {
+		t.Fatalf("期望处理成功，但出现错误: %v", err)
+	}
+
+	expected := []string{"route", "handler"}
+	if !reflect.DeepEqual(order, expected) {
+		t.Fatalf("路由级中间件执行顺序错误，期望 %v，实际 %v", expected, order)
+	}
+}
+
+func TestServeRequest(t *testing.T) {
+	router := NewRouter()
+
+	router.Post("/echo", func(ctx *Context) (*Response, error) {
+		return NewResponse(map[string]string{
+			"body": string(ctx.RequestBody),
+		}), nil
+	})
+
+	resp, err := router.ServeRequest(&Request{Method: "POST", Path: "/echo", Body: []byte("hello")})
+	if err != nil {
+		t.Fatalf("期望路由成功，实际错误: %v", err)
+	}
+
+	if resp.Body == nil {
+		t.Fatalf("期望响应体非空")
+	}
+
+	bodyMap, ok := resp.Body.(map[string]string)
+	if !ok {
+		t.Fatalf("期望响应体为 map[string]string，实际类型 %T", resp.Body)
+	}
+
+	if bodyMap["body"] != "hello" {
+		t.Fatalf("响应内容不匹配，期望 hello，实际 %s", bodyMap["body"])
+	}
+}
+
+func TestServeRequestWithMiddleware(t *testing.T) {
+	order := make([]string, 0)
+
+	mwRoot := func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) (*Response, error) {
+			order = append(order, "mwRoot")
+			return next(ctx)
+		}
+	}
+
+	mwRoute := func(next HandlerFunc) HandlerFunc {
+		return func(ctx *Context) (*Response, error) {
+			order = append(order, "mwRoute")
+			return next(ctx)
+		}
+	}
+
+	router := NewRouter()
+	router.Use(mwRoot)
+
+	router.Post("/demo", func(ctx *Context) (*Response, error) {
+		order = append(order, "handler")
+		return NewTextResponse("ok"), nil
+	}, mwRoute)
+
+	resp, err := router.ServeRequest(&Request{Method: "POST", Path: "/demo", Body: []byte("body")})
+	if err != nil {
+		t.Fatalf("期望处理成功，实际错误: %v", err)
+	}
+
+	if got := resp.Headers["Content-Type"]; got != "utf-8" {
+		t.Fatalf("期望 utf-8，实际 %s", got)
+	}
+
+	bytesBody, err := resp.Bytes()
+	if err != nil {
+		t.Fatalf("期望序列化成功，实际错误: %v", err)
+	}
+	if string(bytesBody) != "ok" {
+		t.Fatalf("期望响应体 ok，实际 %s", string(bytesBody))
+	}
+
+	expectedOrder := []string{"mwRoot", "mwRoute", "handler"}
+	if !reflect.DeepEqual(order, expectedOrder) {
+		t.Fatalf("中间件执行顺序不匹配，期望 %v，实际 %v", expectedOrder, order)
+	}
 }
