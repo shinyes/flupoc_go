@@ -8,6 +8,8 @@ import (
 	"github.com/cykyes/flupoc-go/client"
 )
 
+// go run ./cmd/demo_client --addr=192.168.110.115:5128 --path=/echo --body="hello demo" --ca="d:\\gencert-data\\certs\\192.168.110.115-chain.pem"
+
 func main() {
 	addr := flag.String("addr", "127.0.0.1:5128", "server address")
 	method := flag.String("method", "POST", "request method")

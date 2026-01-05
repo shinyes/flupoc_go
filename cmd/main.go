@@ -9,6 +9,8 @@ import (
 	tcplayer "github.com/cykyes/flupoc-go/tcp_layer"
 )
 
+// go run .\cmd\main.go --addrs="192.168.110.115:5128" --cert="d:\\gencert-data\\certs\\192.168.110.115.crt" --key="d:\\gencert-data\\certs\\192.168.110.115.key"
+
 func main() {
 	addrs := flag.String("addrs", "127.0.0.1:5128", "listen addresses (comma separated)")
 	certFile := flag.String("cert", "", "TLS certificate file")
