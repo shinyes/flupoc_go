@@ -253,6 +253,55 @@ go run ./cmd/demo_client \
 
 ---
 
+## 6. TCP 保活机制
+在 flupoc-go 项目中，TCP 保活机制是应用层实现的心跳（Heartbeat），而不是依赖操作系统底层的 TCP Keepalive。这种设计更灵活，能穿透应用层的代理，并能精确控制超时行为。
+
+主要机制是：服务器主动 Ping，客户端被动 Pong。
+
+主要机制是：服务器主动 Ping，客户端被动 Pong。
+
+1. 核心流程图解
+```
+sequenceDiagram
+    participant Server as 服务器 (tcp_layer)
+    participant Client as 客户端 (client)
+
+    Note over Server: 配置 PingInterval = 30s
+    Note over Server: 配置 IdleTimeout = 2m
+
+    loop 保活循环
+        Server->>Client: 发送 MsgPing (0x01)
+        Client->>Server: 回复 MsgPong (0x02)
+        Note over Server: 收到数据，刷新 IdleTimeout
+    end
+
+    Note over Server: 如果 2分钟内无任何数据(包括Pong)
+    Server->>Server: 触发 ReadDeadline，断开连接
+```
+
+2. 服务器端机制 (tcp_layer)
+服务器负责发起保活探测，并监控连接是否“活着”。
+
+    A. 发送 Ping (pingLoop)
+在 tcp_layer.go 中，当连接建立时，如果配置了 PingInterval，会启动一个协程专门发送 Ping：
+
+    B. 空闲超时检测 (IdleTimeout)
+服务器并不显式检查 "Pong"，而是通过 SetReadDeadline 来间接实现。只要收到任何数据（包括 Pong），超时时间就会被推迟。
+
+    C. 处理客户端的 Ping/Pong
+虽然主要是服务器发 Ping，但代码也兼容了客户端发 Ping 的情况：
+
+3. 客户端机制 (client)
+客户端负责响应保活探测。这对于长轮询或处理时间较长的请求非常重要，防止客户端因为长时间没收到“真正的响应”而认为连接断开。
+
+总结
+双向保活：虽然由服务器发起，但双方都通过 SetReadDeadline 保护自己不被挂死的连接阻塞。
+
+业务透明：Ping/Pong 消息在协议层（tcp_layer 和 client 库内部）被拦截和处理，上层的 Router 处理函数和用户代码完全感知不到心跳包的存在。
+
+配置建议：
+PingInterval (发送频率) 应该 小于 IdleTimeout (超时）
+
 ## 6. 常见问题
 
 **Q: 为什么需要 Poculum？**
