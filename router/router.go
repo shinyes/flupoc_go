@@ -94,8 +94,8 @@ func (r *Router) PathParams(method, path string) (map[string]string, HandlerFunc
 	return ctx.PathParams, handler, nil
 }
 
-// Match 匹配路由并返回完整的Context和Handler
-// requestURL 可以包含查询参数，如 "/users/123?page=1&size=10"
+// Match 查找匹配的路由并返回包含路径参数的 Context。
+// requestURL 可以包含查询参数，例如 "/users/123?page=1&size=10"。
 func (r *Router) Match(method, requestURL string) (*Context, HandlerFunc, error) {
 	path, queryString := SplitPathAndQuery(requestURL)
 	normalized := normalizePath(path)
@@ -104,7 +104,9 @@ func (r *Router) Match(method, requestURL string) (*Context, HandlerFunc, error)
 		if strings.EqualFold(route.Method, method) {
 			if pathParams := ExtractPathParams(route.Path, normalized); pathParams != nil {
 				queryParams := ParseQueryParams(queryString)
-				ctx := &Context{PathParams: pathParams, QueryParams: queryParams}
+				ctx := NewContext(nil)
+				ctx.PathParams = pathParams
+				ctx.QueryParams = queryParams
 				return ctx, route.wrapped, nil
 			}
 		}
@@ -113,7 +115,7 @@ func (r *Router) Match(method, requestURL string) (*Context, HandlerFunc, error)
 	return nil, nil, fmt.Errorf("no route found for %s %s", method, requestURL)
 }
 
-// ServeRequest 根据 Request 匹配路由，执行中间件和 Handler，返回响应
+// ServeRequest 将请求匹配路由并执行中间件链。
 func (r *Router) ServeRequest(req *Request) (*Response, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request is nil")
@@ -125,11 +127,13 @@ func (r *Router) ServeRequest(req *Request) (*Response, error) {
 	}
 
 	ctx.RequestBody = req.Body
+	ctx.Method = req.Method
+	ctx.Path = req.Path
 
 	return handler(ctx)
 }
 
-// wrapWithMiddlewares 按注册顺序将中间件套在 handler 外
+// wrapWithMiddlewares 按注册顺序将中间件包裹在 handler 外层
 func wrapWithMiddlewares(handler HandlerFunc, middlewares []Middleware) HandlerFunc {
 	finalHandler := handler
 	for i := len(middlewares) - 1; i >= 0; i-- {

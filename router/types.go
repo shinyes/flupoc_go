@@ -1,47 +1,76 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
 	"github.com/cykyes/flupoc-go/poculum"
 )
 
-// HandlerFunc 路由处理函数类型
-// 返回响应数据和可能的错误
-// 中间件应调用 next 并返回其结果。
+// HandlerFunc 定义路由处理函数签名。
+// 接收 Context，返回 Response 与可选错误。
 type HandlerFunc func(*Context) (*Response, error)
 
-// Middleware 定义中间件，包装下游处理器
-// 允许在调用前后执行逻辑。
+// Middleware 包裹处理函数以添加前置/后置逻辑。
 type Middleware func(HandlerFunc) HandlerFunc
 
-// Request 表示路由分发所需的最小请求信息
-// Path 可以包含查询串，例如 /users/1?page=2
+// Request 表示入站请求。
 type Request struct {
 	Method string
 	Path   string
 	Body   []byte
 }
 
-// Context 请求上下文，包含路由处理所需的所有信息
-// 未来可扩展：Method、Path、RequestBody 等
-// 目前仅包含路径参数和查询参数。
+// Context 在处理链中携带请求级数据。
 type Context struct {
+	context.Context // 嵌入标准 context 以支持取消/超时
+
 	PathParams  map[string]string
 	QueryParams map[string]string
-	RequestBody []byte // 原始请求体
+	RequestBody []byte
+
+	// Request metadata (populated by server)
+	Method string
+	Path   string
 }
 
-// Response 响应数据结构
-// Body 可以是字符串、[]byte、结构体等。
+// NewContext 基于给定上下文创建新的 Context。
+func NewContext(ctx context.Context) *Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &Context{
+		Context:     ctx,
+		PathParams:  make(map[string]string),
+		QueryParams: make(map[string]string),
+	}
+}
+
+// Param 返回路径参数的值。
+func (c *Context) Param(key string) string {
+	if c.PathParams == nil {
+		return ""
+	}
+	return c.PathParams[key]
+}
+
+// Query 返回查询参数的值。
+func (c *Context) Query(key string) string {
+	if c.QueryParams == nil {
+		return ""
+	}
+	return c.QueryParams[key]
+}
+
+// Response 表示一条出站响应。
 type Response struct {
 	StatusCode int
 	Headers    map[string]string
 	Body       interface{}
 }
 
-// NewResponse 创建一个默认的成功响应
+// NewResponse 使用给定 Body 创建 200 OK 响应。
 func NewResponse(body interface{}) *Response {
 	return &Response{
 		StatusCode: 200,
@@ -50,24 +79,76 @@ func NewResponse(body interface{}) *Response {
 	}
 }
 
-// NewTextResponse 创建用于UTF-8文本的响应，自动设置Content-Type
+// OK 创建带可选 Body 的 200 响应。
+func OK(body interface{}) *Response {
+	return NewResponse(body)
+}
+
+// Error 创建指定状态码和消息的错误响应。
+func Error(statusCode int, message string) *Response {
+	return &Response{
+		StatusCode: statusCode,
+		Headers:    map[string]string{"Content-Type": "text/plain"},
+		Body:       message,
+	}
+}
+
+// JSON 创建带 JSON 内容类型的 200 响应。
+func JSON(body interface{}) *Response {
+	resp := NewResponse(body)
+	resp.Headers["Content-Type"] = "application/json"
+	return resp
+}
+
+// Text 创建纯文本响应。
+func Text(text string) *Response {
+	return &Response{
+		StatusCode: 200,
+		Headers:    map[string]string{"Content-Type": "text/plain; charset=utf-8"},
+		Body:       text,
+	}
+}
+
+// Bytes 创建二进制响应。
+func Bytes(data []byte) *Response {
+	return &Response{
+		StatusCode: 200,
+		Headers:    map[string]string{"Content-Type": "application/octet-stream"},
+		Body:       data,
+	}
+}
+
+// WithStatus 设置状态码并返回响应以便链式调用。
+func (r *Response) WithStatus(code int) *Response {
+	r.StatusCode = code
+	return r
+}
+
+// WithHeader 添加 Header 并返回响应以便链式调用。
+func (r *Response) WithHeader(key, value string) *Response {
+	if r.Headers == nil {
+		r.Headers = make(map[string]string)
+	}
+	r.Headers[key] = value
+	return r
+}
+
+// --- 已弃用的兼容函数 ---
+
+// NewTextResponse 已弃用，使用 Text。
 func NewTextResponse(text string) *Response {
-	resp := NewResponse(text)
-	resp.Headers["Content-Type"] = "utf-8"
-	return resp
+	return Text(text)
 }
 
-// NewBytesResponse 创建用于字节流的响应，自动设置Content-Type
+// NewBytesResponse 已弃用，使用 Bytes。
 func NewBytesResponse(data []byte) *Response {
-	resp := NewResponse(data)
-	resp.Headers["Content-Type"] = "bytes"
-	return resp
+	return Bytes(data)
 }
 
-// Bytes 将响应体转换为字节流
+// Bytes converts the response body to bytes.
 func (resp *Response) Bytes() ([]byte, error) {
 	if resp == nil {
-		return nil, fmt.Errorf("response is nil")
+		return nil, fmt.Errorf("响应为空")
 	}
 
 	switch body := resp.Body.(type) {
@@ -82,26 +163,26 @@ func (resp *Response) Bytes() ([]byte, error) {
 	}
 }
 
-// BytesToRequest 使用 Poculum 将二进制载荷解码为 Request
+// BytesToRequest decodes a Poculum-encoded request.
 func BytesToRequest(data []byte) (*Request, error) {
 	decoded, err := poculum.LoadPoculum(data)
 	if err != nil {
-		return nil, fmt.Errorf("decode request: %w", err)
+		return nil, fmt.Errorf("解码请求: %w", err)
 	}
 
 	reqMap, ok := decoded.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("decoded request is %T, want map[string]any", decoded)
+		return nil, fmt.Errorf("解码结果为 %T，期望 map[string]any", decoded)
 	}
 
 	method, ok := reqMap["method"].(string)
 	if !ok || method == "" {
-		return nil, fmt.Errorf("request method missing or not string")
+		return nil, fmt.Errorf("请求 method 缺失或不是字符串")
 	}
 
 	path, ok := reqMap["path"].(string)
 	if !ok || path == "" {
-		return nil, fmt.Errorf("request path missing or not string")
+		return nil, fmt.Errorf("请求 path 缺失或不是字符串")
 	}
 
 	var body []byte
@@ -112,17 +193,17 @@ func BytesToRequest(data []byte) (*Request, error) {
 		case []byte:
 			body = b
 		default:
-			return nil, fmt.Errorf("unsupported body type %T: body must be []byte", b)
+			return nil, fmt.Errorf("不支持的 body 类型 %T: body 必须为 []byte", b)
 		}
 	}
 
 	return &Request{Method: method, Path: path, Body: body}, nil
 }
 
-// ResponseToBytes 使用 Poculum 将 Response 序列化为二进制
+// ResponseToBytes encodes a response using Poculum.
 func ResponseToBytes(resp *Response) ([]byte, error) {
 	if resp == nil {
-		return nil, fmt.Errorf("response is nil")
+		return nil, fmt.Errorf("响应为空")
 	}
 
 	payload := map[string]any{

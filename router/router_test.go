@@ -447,8 +447,8 @@ func TestServeRequestWithMiddleware(t *testing.T) {
 		t.Fatalf("期望处理成功，实际错误: %v", err)
 	}
 
-	if got := resp.Headers["Content-Type"]; got != "utf-8" {
-		t.Fatalf("期望 utf-8，实际 %s", got)
+	if got := resp.Headers["Content-Type"]; got != "text/plain; charset=utf-8" {
+		t.Fatalf("expected text/plain; charset=utf-8, got %s", got)
 	}
 
 	bytesBody, err := resp.Bytes()
