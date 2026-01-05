@@ -71,8 +71,8 @@ resp, _ := cli.Do("127.0.0.1:5128", "POST", "/echo", []byte("data"))
 ### 服务器配置 (`tcplayer.ServerOptions`)
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `IdleTimeout` | `time.Duration` | `0` | 应用层无通信超时后断开（0=不超时） |
-| `PingInterval` | `time.Duration` | `0` | 服务器定期发送 PING；客户端自动回复 PONG，用于保活与空闲探测 |
+| `IdleTimeout` | `time.Duration` | `0` | 应用层无通信超时后断开（0=永不超时） |
+| `PingInterval` | `time.Duration` | `0` | 服务器定期发送 PING；客户端自动回复 PONG，用于保活与空闲探测 ，0=不发送ping包|
 
 ### 客户端配置 (`client.Options`)
 | 字段 | 类型 | 默认值 | 说明 |
