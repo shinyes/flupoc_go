@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/cykyes/flupoc-go/protocol/service"
 	"github.com/cykyes/flupoc-go/router"
 	tcplayer "github.com/cykyes/flupoc-go/tcp_layer"
 )
@@ -26,12 +27,20 @@ func main() {
 		log.Fatal("未提供有效地址")
 	}
 
+	// 1. 创建路由器
 	r := router.NewRouter()
 	r.Post("/echo", func(ctx *router.Context) (*router.Response, error) {
 		return router.Bytes(ctx.RequestBody), nil
 	})
 
-	if err := tcplayer.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, r, nil); err != nil {
+	// 2. 创建协议层连接处理器
+	connService, err := service.NewConnectionService(r, service.DefaultHandlerOptions())
+	if err != nil {
+		log.Fatalf("创建连接处理器失败: %v", err)
+	}
+
+	// 3. 启动 TLS 服务器
+	if err := tcplayer.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, connService.AsConnService()); err != nil {
 		log.Fatalf("服务器退出: %v", err)
 	}
 }

@@ -1,4 +1,5 @@
-// Package tcplayer 提供基于 Flupoc 协议的 TLS TCP 服务器。
+// Package tcplayer 提供 TLS TCP 服务器，负责创建和管理 TLS 连接。
+// 连接的协议处理由 protocol/handler 包负责。
 package tcplayer
 
 import (
@@ -6,7 +7,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -16,48 +16,27 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cykyes/flupoc-go/protocol/datagram"
-	"github.com/cykyes/flupoc-go/protocol/head"
-	"github.com/cykyes/flupoc-go/router"
+	"github.com/cykyes/flupoc-go/protocol/service"
 )
 
-type Server struct {
-	addr      string
-	router    *router.Router
-	tlsConfig *tls.Config
-	listener  net.Listener
+// ConnService 定义连接处理函数类型。
+// 由协议层提供具体实现。
+type ConnService = service.ConnService
 
-	opts ServerOptions
+// Server 表示一个 TLS TCP 服务器。
+// 只负责创建和接受 TLS 连接，具体的协议处理交给 ConnService。
+type Server struct {
+	addr        string
+	tlsConfig   *tls.Config
+	listener    net.Listener
+	connService ConnService
 
 	activeConns int64
-	idleClosed  uint64
 }
 
-type ServerOptions struct {
-	IdleTimeout  time.Duration
-	PingInterval time.Duration
-}
-
+// ServerStats 包含服务器统计信息。
 type ServerStats struct {
 	ActiveConns int64
-	IdleClosed  uint64
-}
-
-func defaultServerOptions() ServerOptions {
-	return ServerOptions{
-		IdleTimeout:  0,
-		PingInterval: 0,
-	}
-}
-
-func (o ServerOptions) normalize() ServerOptions {
-	if o.PingInterval < 0 {
-		o.PingInterval = 0
-	}
-	if o.IdleTimeout < 0 {
-		o.IdleTimeout = 0
-	}
-	return o
 }
 
 // Addr 返回服务器的监听地址。
@@ -65,10 +44,11 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-// NewServer 创建用于路由数据报的 TLS TCP 服务器。
-func NewServer(addr, certFile, keyFile string, r *router.Router, opts ServerOptions) (*Server, error) {
-	if r == nil {
-		return nil, errors.New("路由器不能为空")
+// NewServer 创建 TLS TCP 服务器。
+// connService 由协议层提供，负责处理连接的生命周期。
+func NewServer(addr, certFile, keyFile string, connService ConnService) (*Server, error) {
+	if connService == nil {
+		return nil, errors.New("连接处理函数不能为空")
 	}
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
@@ -80,24 +60,23 @@ func NewServer(addr, certFile, keyFile string, r *router.Router, opts ServerOpti
 		MinVersion:   tls.VersionTLS12,
 	}
 
-	return &Server{addr: addr, router: r, tlsConfig: cfg, opts: opts}, nil
+	return &Server{
+		addr:        addr,
+		tlsConfig:   cfg,
+		connService: connService,
+	}, nil
 }
 
 // ServeTLS 在多个地址上启动 TLS 服务器并返回实例。
 // 调用方需持有 ctx，ctx 取消后所有监听器会退出。
-func ServeTLS(ctx context.Context, addrs []string, certFile, keyFile string, r *router.Router, opts *ServerOptions) ([]*Server, error) {
+func ServeTLS(ctx context.Context, addrs []string, certFile, keyFile string, connService ConnService) ([]*Server, error) {
 	if len(addrs) == 0 {
 		return nil, errors.New("地址列表为空")
 	}
 
-	finalOpts := defaultServerOptions()
-	if opts != nil {
-		finalOpts = opts.normalize()
-	}
-
 	servers := make([]*Server, 0, len(addrs))
 	for _, addr := range addrs {
-		srv, err := NewServer(addr, certFile, keyFile, r, finalOpts)
+		srv, err := NewServer(addr, certFile, keyFile, connService)
 		if err != nil {
 			return nil, fmt.Errorf("创建服务器 (%s): %w", addr, err)
 		}
@@ -117,11 +96,11 @@ func ServeTLS(ctx context.Context, addrs []string, certFile, keyFile string, r *
 }
 
 // ListenAndServeTLS 启动服务器并阻塞直到被中断。
-func ListenAndServeTLS(addrs []string, certFile, keyFile string, r *router.Router, opts *ServerOptions) error {
+func ListenAndServeTLS(addrs []string, certFile, keyFile string, connService ConnService) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	servers, err := ServeTLS(ctx, addrs, certFile, keyFile, r, opts)
+	servers, err := ServeTLS(ctx, addrs, certFile, keyFile, connService)
 	if err != nil {
 		return err
 	}
@@ -165,12 +144,13 @@ func (s *Server) Start(ctx context.Context) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			// 监听器关闭或临时错误。
+			// 监听器关闭
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			if ne, ok := err.(net.Error); ok && ne.Temporary() {
-				log.Printf("临时 accept 错误: %v", err)
+			// 对于超时错误，短暂等待后重试
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				log.Printf("accept 超时: %v", err)
 				time.Sleep(time.Millisecond * 100)
 				continue
 			}
@@ -190,133 +170,22 @@ func (s *Server) Close() error {
 	return s.listener.Close()
 }
 
+// handleConn 处理单个连接，将控制权交给协议层的 connHandler。
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer func() {
 		atomic.AddInt64(&s.activeConns, -1)
 		conn.Close()
 	}()
 
-	stopPing := make(chan struct{})
-	defer close(stopPing)
-	if s.opts.PingInterval > 0 {
-		go s.pingLoop(ctx, conn, stopPing)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		if s.opts.IdleTimeout > 0 {
-			_ = conn.SetReadDeadline(time.Now().Add(s.opts.IdleTimeout))
-		}
-
-		dg, err := datagram.ReadFrom(conn)
-		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				atomic.AddUint64(&s.idleClosed, 1)
-			}
-			if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
-				return
-			}
-			log.Printf("读取数据报: %v", err)
-			return
-		}
-
-		respDG, err := s.handleDatagram(dg)
-		if err != nil {
-			log.Printf("处理数据报: %v", err)
-			continue
-		}
-		if respDG == nil {
-			continue
-		}
-
-		raw, err := respDG.Serialize()
-		if err != nil {
-			log.Printf("序列化响应: %v", err)
-			continue
-		}
-
-		if _, err := conn.Write(raw); err != nil {
-			log.Printf("写入响应: %v", err)
-			return
-		}
+	// 将连接交给协议层处理
+	if err := s.connService(ctx, conn); err != nil {
+		log.Printf("连接处理结束: %v", err)
 	}
 }
 
-func (s *Server) pingLoop(ctx context.Context, conn net.Conn, stop <-chan struct{}) {
-	ticker := time.NewTicker(s.opts.PingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-stop:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			dg := datagram.New(0, head.MsgPing, nil)
-			raw, err := dg.Serialize()
-			if err != nil {
-				log.Printf("序列化 ping: %v", err)
-				continue
-			}
-			if _, err := conn.Write(raw); err != nil {
-				log.Printf("发送 ping: %v", err)
-				return
-			}
-		}
-	}
-}
-
-// Stats returns current server connection statistics.
+// Stats 返回服务器统计信息。
 func (s *Server) Stats() ServerStats {
 	return ServerStats{
 		ActiveConns: atomic.LoadInt64(&s.activeConns),
-		IdleClosed:  atomic.LoadUint64(&s.idleClosed),
 	}
-}
-
-func (s *Server) handleDatagram(dg *datagram.Datagram) (*datagram.Datagram, error) {
-	switch dg.Head.Type {
-	case head.MsgPing:
-		return datagram.New(dg.Head.ChannelID, head.MsgPong, nil), nil
-	case head.MsgPong:
-		return nil, nil
-	case head.MsgRequest:
-		return s.handleRequest(dg)
-	default:
-		return nil, fmt.Errorf("不支持的消息类型: %d", dg.Head.Type)
-	}
-}
-
-func (s *Server) handleRequest(dg *datagram.Datagram) (*datagram.Datagram, error) {
-	req, err := router.BytesToRequest(dg.Data)
-	if err != nil {
-		return buildErrorDatagram(dg.Head.ChannelID, fmt.Errorf("解码请求: %w", err))
-	}
-
-	resp, err := s.router.ServeRequest(req)
-	if err != nil {
-		return buildErrorDatagram(dg.Head.ChannelID, err)
-	}
-
-	payload, err := router.ResponseToBytes(resp)
-	if err != nil {
-		return nil, fmt.Errorf("编码响应: %w", err)
-	}
-
-	return datagram.New(dg.Head.ChannelID, head.MsgResponse, payload), nil
-}
-
-func buildErrorDatagram(channelID uint16, err error) (*datagram.Datagram, error) {
-	resp := router.Error(500, err.Error())
-	payload, encErr := router.ResponseToBytes(resp)
-	if encErr != nil {
-		return nil, fmt.Errorf("编码错误响应: %w", encErr)
-	}
-	return datagram.New(channelID, head.MsgResponse, payload), nil
 }
