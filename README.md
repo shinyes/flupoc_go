@@ -2,11 +2,29 @@
 
 基于 TLS 的二进制路由库，提供类 HTTP 风格的 API 设计：
 
-- **协议层**：`protocol/head` 和 `protocol/datagram` 定义 8 字节帧头（协议/类型/通道ID/数据长度）及数据报序列化。
+- **协议层**：`protocol/head` 和 `protocol/datagram` 定义 8 字节帧头（协议/类型/通道ID/数据长度）及数据报序列化；`protocol/service` 负责连接生命周期管理、数据报读写和请求分发。
 - **路由层**：`router.Router` 支持 Method/Path 匹配与中间件，内置 Poculum 编解码。
-- **传输层**：`tcp_layer` 提供 TLS TCP 服务端，支持数据报→路由→响应流程、多地址监听与一行式启动。
+- **传输层**：`tcp_layer` 仅负责 TLS TCP 连接的创建与接受，将连接交给协议层处理。
 - **客户端**：`client` 封装 TLS 连接、数据报发送与响应解码，提供可复用的 `Client` 及类 HTTP 辅助方法。
 - **命令行**：`cmd/main.go`（服务器）、`cmd/demo_client/main.go`（客户端示例）。
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        应用层                                │
+│                    router.Router                            │
+│              (路由匹配、中间件、请求处理)                      │
+├─────────────────────────────────────────────────────────────┤
+│                       协议层                                 │
+│               protocol/service                              │
+│    (连接生命周期、数据报读写、心跳、空闲超时、请求分发)          │
+├─────────────────────────────────────────────────────────────┤
+│                       传输层                                 │
+│                    tcp_layer                                │
+│              (TLS 连接创建与接受)                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## 快速开始
 
@@ -32,21 +50,37 @@ go run ./cmd/demo_client --addr=127.0.0.1:5128 ^
 
 ### 最简服务器
 ```go
+import (
+    "github.com/cykyes/flupoc-go/protocol/service"
+    "github.com/cykyes/flupoc-go/router"
+    tcplayer "github.com/cykyes/flupoc-go/tcp_layer"
+)
+
+// 1. 创建路由器
 r := router.NewRouter()
 r.Post("/echo", func(ctx *router.Context) (*router.Response, error) {
     return router.Bytes(ctx.RequestBody), nil
 })
-tcplayer.ListenAndServeTLS([]string{"127.0.0.1:5128"}, certFile, keyFile, r, nil)
+
+// 2. 创建协议层连接服务
+connSvc, _ := service.NewConnectionService(r, service.DefaultHandlerOptions())
+
+// 3. 启动 TLS 服务器
+tcplayer.ListenAndServeTLS([]string{"127.0.0.1:5128"}, certFile, keyFile, connSvc.AsConnService())
 ```
 
 ### 带配置的服务器
 ```go
-opts := &tcplayer.ServerOptions{
-    IdleTimeout:  2 * time.Minute, // 应用层无通信超过该时间即断开
+// 协议层配置（心跳、超时等）
+svcOpts := service.ServiceOptions{
+    IdleTimeout:  2 * time.Minute,  // 应用层无通信超过该时间即断开
     PingInterval: 30 * time.Second, // 周期性发送 PING，客户端自动回 PONG
 }
-srv, _ := tcplayer.ServeTLS(ctx, []string{":5128"}, cert, key, r, opts)
-stats := srv.Stats() // ActiveConns, IdleClosed
+connSvc, _ := service.NewConnectionService(r, svcOpts)
+
+// 启动服务器
+servers, _ := tcplayer.ServeTLS(ctx, []string{":5128"}, cert, key, connSvc.AsConnService())
+stats := servers[0].Stats() // ActiveConns
 ```
 
 ### 最简客户端
@@ -68,11 +102,11 @@ resp, _ := cli.Do("127.0.0.1:5128", "POST", "/echo", []byte("data"))
 
 ## API 参考
 
-### 服务器配置 (`tcplayer.ServerOptions`)
+### 协议层配置 (`service.ServiceOptions`)
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `IdleTimeout` | `time.Duration` | `0` | 应用层无通信超时后断开（0=永不超时） |
-| `PingInterval` | `time.Duration` | `0` | 服务器定期发送 PING；客户端自动回复 PONG，用于保活与空闲探测 ，0=不发送ping包|
+| `PingInterval` | `time.Duration` | `0` | 服务器定期发送 PING；客户端自动回复 PONG，用于保活与空闲探测，0=不发送ping包 |
 
 ### 客户端配置 (`client.Options`)
 | 字段 | 类型 | 默认值 | 说明 |
@@ -116,9 +150,11 @@ head.MsgPong     = 0x04  // PONG 消息类型
 | 目录 | 说明 |
 |------|------|
 | `cmd/` | 服务器入口与客户端示例 |
-| `tcp_layer/` | TLS TCP 服务端（ServeTLS / ListenAndServeTLS） |
+| `tcp_layer/` | TLS TCP 传输层（仅负责连接创建与接受） |
+| `protocol/service/` | 协议层连接服务（连接生命周期、数据报处理、心跳） |
+| `protocol/head/` | 帧头定义 |
+| `protocol/datagram/` | 数据报序列化 |
 | `client/` | TLS 客户端（Client / Do / Get / Post） |
-| `protocol/` | 帧头与数据报 |
 | `router/` | 路由与 Poculum 编解码 |
 | `poculum/` | Poculum 序列化格式 |
 
