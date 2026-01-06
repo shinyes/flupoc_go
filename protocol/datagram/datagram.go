@@ -29,7 +29,7 @@ func New(channelID uint16, msgType uint8, data []byte) *Datagram {
 }
 
 // Serialize 将数据报编码成字节流。
-func (d *Datagram) Serialize() ([]byte, error) {
+func (d *Datagram) Serialize() []byte {
 	buf := make([]byte, head.HeaderSize+len(d.Data))
 
 	// 写头部
@@ -43,7 +43,7 @@ func (d *Datagram) Serialize() ([]byte, error) {
 		copy(buf[head.HeaderSize:], d.Data)
 	}
 
-	return buf, nil
+	return buf
 }
 
 // Parse 从字节中解码数据报。

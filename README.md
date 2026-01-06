@@ -50,37 +50,22 @@ go run ./cmd/demo_client --addr=127.0.0.1:5128 ^
 
 ### 最简服务器
 ```go
-import (
-    "github.com/cykyes/flupoc-go/protocol/service"
-    "github.com/cykyes/flupoc-go/router"
-    tcplayer "github.com/cykyes/flupoc-go/tcp_layer"
-)
-
-// 1. 创建路由器
 r := router.NewRouter()
 r.Post("/echo", func(ctx *router.Context) (*router.Response, error) {
     return router.Bytes(ctx.RequestBody), nil
 })
 
-// 2. 创建协议层连接服务
-connSvc, _ := service.NewConnectionService(r, service.DefaultHandlerOptions())
-
-// 3. 启动 TLS 服务器
-tcplayer.ListenAndServeTLS([]string{"127.0.0.1:5128"}, certFile, keyFile, connSvc.AsConnService())
+svc := service.New(r, service.Options{})
+tcplayer.ListenAndServeTLS([]string{"127.0.0.1:5128"}, certFile, keyFile, svc.Handle)
 ```
 
 ### 带配置的服务器
 ```go
-// 协议层配置（心跳、超时等）
-svcOpts := service.ServiceOptions{
-    IdleTimeout:  2 * time.Minute,  // 应用层无通信超过该时间即断开
-    PingInterval: 30 * time.Second, // 周期性发送 PING，客户端自动回 PONG
-}
-connSvc, _ := service.NewConnectionService(r, svcOpts)
-
-// 启动服务器
-servers, _ := tcplayer.ServeTLS(ctx, []string{":5128"}, cert, key, connSvc.AsConnService())
-stats := servers[0].Stats() // ActiveConns
+svc := service.New(r, service.Options{
+    IdleTimeout:  2 * time.Minute,  // 空闲超时断开
+    PingInterval: 30 * time.Second, // 心跳保活
+})
+tcplayer.ListenAndServeTLS(addrs, cert, key, svc.Handle)
 ```
 
 ### 最简客户端
@@ -102,7 +87,7 @@ resp, _ := cli.Do("127.0.0.1:5128", "POST", "/echo", []byte("data"))
 
 ## API 参考
 
-### 协议层配置 (`service.ServiceOptions`)
+### 协议层配置 (`service.Options`)
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `IdleTimeout` | `time.Duration` | `0` | 应用层无通信超时后断开（0=永不超时） |

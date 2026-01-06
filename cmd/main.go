@@ -33,14 +33,9 @@ func main() {
 		return router.Bytes(ctx.RequestBody), nil
 	})
 
-	// 2. 创建协议层连接处理器
-	connService, err := service.NewConnectionService(r, service.DefaultHandlerOptions())
-	if err != nil {
-		log.Fatalf("创建连接处理器失败: %v", err)
-	}
-
-	// 3. 启动 TLS 服务器
-	if err := tcplayer.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, connService.AsConnService()); err != nil {
+	// 2. 创建协议层服务并启动 TLS 服务器
+	svc := service.New(r, service.Options{})
+	if err := tcplayer.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, svc.Handle); err != nil {
 		log.Fatalf("服务器退出: %v", err)
 	}
 }

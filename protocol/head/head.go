@@ -46,13 +46,13 @@ func (h *Header) Validate() error {
 }
 
 // Serialize 将帧头序列化为字节。
-func (h *Header) Serialize() ([]byte, error) {
+func (h *Header) Serialize() []byte {
 	buf := make([]byte, HeaderSize)
 	buf[0] = h.Protocol
 	buf[1] = h.Type
 	binary.BigEndian.PutUint16(buf[2:4], h.ChannelID)
 	binary.BigEndian.PutUint32(buf[4:8], h.DataLength)
-	return buf, nil
+	return buf
 }
 
 // Parse 从字节解码帧头。

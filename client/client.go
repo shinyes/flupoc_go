@@ -30,9 +30,6 @@ type Options struct {
 	WriteTimeout time.Duration // 写请求超时（默认 5s）
 }
 
-// TLSConfig 是 Options 的别名（已弃用，直接使用 Options）。
-type TLSConfig = Options
-
 // Client 表示可复用的 Flupoc 协议客户端。
 type Client struct {
 	tlsConf *tls.Config
@@ -83,15 +80,11 @@ func (c *Client) Do(addr, method, path string, body []byte) (*router.Response, e
 	}
 
 	dg := datagram.New(1, head.MsgRequest, payload)
-	raw, err := dg.Serialize()
-	if err != nil {
-		return nil, fmt.Errorf("序列化数据报: %w", err)
-	}
 
 	if err := conn.SetWriteDeadline(time.Now().Add(c.opts.WriteTimeout)); err != nil {
 		return nil, err
 	}
-	if _, err := conn.Write(raw); err != nil {
+	if _, err := conn.Write(dg.Serialize()); err != nil {
 		return nil, fmt.Errorf("发送: %w", err)
 	}
 
@@ -110,14 +103,10 @@ func (c *Client) Do(addr, method, path string, body []byte) (*router.Response, e
 		case head.MsgPing:
 			// 服务器心跳，立即回复 PONG 继续等待真实响应
 			pong := datagram.New(dgResp.Head.ChannelID, head.MsgPong, nil)
-			rawPong, err := pong.Serialize()
-			if err != nil {
-				return nil, fmt.Errorf("序列化 PONG: %w", err)
-			}
 			if err := conn.SetWriteDeadline(time.Now().Add(c.opts.WriteTimeout)); err != nil {
 				return nil, err
 			}
-			if _, err := conn.Write(rawPong); err != nil {
+			if _, err := conn.Write(pong.Serialize()); err != nil {
 				return nil, fmt.Errorf("发送 PONG: %w", err)
 			}
 			continue
