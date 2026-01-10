@@ -35,7 +35,12 @@ func main() {
 
 	// 2. 创建协议层服务并启动 TLS 服务器
 	svc := service.New(r, service.Options{})
-	if err := transport.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, svc.Handle); err != nil {
+	if err := transport.ListenAndServeTLS(transport.Config{
+		Addrs:       parsedAddrs,
+		CertFile:    *certFile,
+		KeyFile:     *keyFile,
+		ConnService: svc.Handle,
+	}); err != nil {
 		log.Fatalf("服务器退出: %v", err)
 	}
 }
