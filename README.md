@@ -124,7 +124,7 @@ router.Error(code int, msg string) *Response  // 错误响应
 
 ### 协议常量 (`protocol/head`)
 ```go
-head.ProtocolID  = 0x66  // 'f' - Flupoc 协议标识符
+head.ProtocolID  = 0xCF  // Flupoc 协议标识符
 head.MsgRequest  = 0x01  // 请求消息类型
 head.MsgResponse = 0x02  // 响应消息类型
 head.MsgPing     = 0x03  // PING 消息类型
