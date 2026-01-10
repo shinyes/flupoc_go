@@ -1,6 +1,6 @@
-// Package tcplayer 提供 TLS TCP 服务器，负责创建和管理 TLS 连接。
+// Package transport 提供 TLS TCP 服务器，负责创建和管理 TLS 连接。
 // 连接的协议处理由 protocol/service 包负责。
-package tcplayer
+package transport
 
 import (
 	"context"

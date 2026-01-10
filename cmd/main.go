@@ -7,7 +7,7 @@ import (
 
 	"github.com/cykyes/flupoc-go/protocol/service"
 	"github.com/cykyes/flupoc-go/router"
-	tcplayer "github.com/cykyes/flupoc-go/tcp_layer"
+	"github.com/cykyes/flupoc-go/transport"
 )
 
 // go run .\cmd\main.go --addrs="192.168.110.115:5128" --cert="d:\\gencert-data\\certs\\192.168.110.115.crt" --key="d:\\gencert-data\\certs\\192.168.110.115.key"
@@ -35,7 +35,7 @@ func main() {
 
 	// 2. 创建协议层服务并启动 TLS 服务器
 	svc := service.New(r, service.Options{})
-	if err := tcplayer.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, svc.Handle); err != nil {
+	if err := transport.ListenAndServeTLS(parsedAddrs, *certFile, *keyFile, svc.Handle); err != nil {
 		log.Fatalf("服务器退出: %v", err)
 	}
 }

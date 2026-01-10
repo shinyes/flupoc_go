@@ -4,7 +4,7 @@
 
 - **协议层**：`protocol/head` 和 `protocol/datagram` 定义 8 字节帧头（协议/类型/通道ID/数据长度）及数据报序列化；`protocol/service` 负责连接生命周期管理、数据报读写和请求分发。
 - **路由层**：`router.Router` 支持 Method/Path 匹配与中间件，内置 Poculum 编解码。
-- **传输层**：`tcp_layer` 仅负责 TLS TCP 连接的创建与接受，将连接交给协议层处理。
+- **传输层**：`transport` 仅负责 TLS TCP 连接的创建与接受，将连接交给协议层处理。
 - **客户端**：`client` 封装 TLS 连接、数据报发送与响应解码，提供可复用的 `Client` 及类 HTTP 辅助方法。
 - **命令行**：`cmd/main.go`（服务器）、`cmd/demo_client/main.go`（客户端示例）。
 
@@ -21,7 +21,7 @@
 │    (连接生命周期、数据报读写、心跳、空闲超时、请求分发)          │
 ├─────────────────────────────────────────────────────────────┤
 │                       传输层                                 │
-│                    tcp_layer                                │
+│                    transport                                │
 │              (TLS 连接创建与接受)                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -56,7 +56,7 @@ r.Post("/echo", func(ctx *router.Context) (*router.Response, error) {
 })
 
 svc := service.New(r, service.Options{})
-tcplayer.ListenAndServeTLS([]string{"127.0.0.1:5128"}, certFile, keyFile, svc.Handle)
+transport.ListenAndServeTLS([]string{"127.0.0.1:5128"}, certFile, keyFile, svc.Handle)
 ```
 
 ### 带配置的服务器
@@ -65,7 +65,7 @@ svc := service.New(r, service.Options{
     IdleTimeout:  2 * time.Minute,  // 空闲超时断开
     PingInterval: 30 * time.Second, // 心跳保活
 })
-tcplayer.ListenAndServeTLS(addrs, cert, key, svc.Handle)
+transport.ListenAndServeTLS(addrs, cert, key, svc.Handle)
 ```
 
 ### 最简客户端
@@ -135,7 +135,7 @@ head.MsgPong     = 0x04  // PONG 消息类型
 | 目录 | 说明 |
 |------|------|
 | `cmd/` | 服务器入口与客户端示例 |
-| `tcp_layer/` | TLS TCP 传输层（仅负责连接创建与接受） |
+| `transport/` | TLS TCP 传输层（仅负责连接创建与接受） |
 | `protocol/service/` | 协议层连接服务（连接生命周期、数据报处理、心跳） |
 | `protocol/head/` | 帧头定义 |
 | `protocol/datagram/` | 数据报序列化 |
