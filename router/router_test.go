@@ -1,6 +1,7 @@
 package router
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -10,15 +11,15 @@ func TestRouter_AddRouteAndPathParams(t *testing.T) {
 
 	// 添加测试路由
 	router.AddRoute("GET", "/users/{id}", func(ctx *Context) (*Response, error) {
-		return NewResponse("user data"), nil
+		return Text("user data"), nil
 	})
 
 	router.AddRoute("GET", "/users/{id}/posts/{postId}", func(ctx *Context) (*Response, error) {
-		return NewResponse("post data"), nil
+		return Text("post data"), nil
 	})
 
 	router.AddRoute("POST", "/users", func(ctx *Context) (*Response, error) {
-		return NewResponse("created"), nil
+		return Text("created"), nil
 	})
 
 	// 测试路径参数提取
@@ -173,19 +174,19 @@ func TestHTTPMethods(t *testing.T) {
 
 	// 测试不同的HTTP方法
 	router.Get("/test", func(ctx *Context) (*Response, error) {
-		return NewResponse("get"), nil
+		return Text("get"), nil
 	})
 
 	router.Post("/test", func(ctx *Context) (*Response, error) {
-		return NewResponse("post"), nil
+		return Text("post"), nil
 	})
 
 	router.Put("/test", func(ctx *Context) (*Response, error) {
-		return NewResponse("put"), nil
+		return Text("put"), nil
 	})
 
 	router.Delete("/test", func(ctx *Context) (*Response, error) {
-		return NewResponse("delete"), nil
+		return Text("delete"), nil
 	})
 
 	// 测试各种方法是否都能正确匹配
@@ -262,7 +263,7 @@ func TestRouter_Match(t *testing.T) {
 	router := NewRouter()
 
 	router.Get("/users/{id}", func(ctx *Context) (*Response, error) {
-		return NewResponse(map[string]string{"id": ctx.PathParams["id"]}), nil
+		return JSON(map[string]string{"id": ctx.PathParams["id"]}), nil
 	})
 
 	t.Run("匹配带查询参数的请求", func(t *testing.T) {
@@ -340,7 +341,7 @@ func TestMiddlewareOrder(t *testing.T) {
 	api := router.Group("/api", groupMW)
 	api.Get("/items/{id}", func(ctx *Context) (*Response, error) {
 		order = append(order, "handler")
-		return NewResponse(ctx.PathParams["id"]), nil
+		return Text(ctx.PathParams["id"]), nil
 	}, routeMW)
 
 	ctx, handler, err := router.Match("GET", "/api/items/99")
@@ -371,7 +372,7 @@ func TestRouteLevelMiddlewareWithoutGroup(t *testing.T) {
 	router := NewRouter()
 	router.Get("/ping", func(ctx *Context) (*Response, error) {
 		order = append(order, "handler")
-		return NewResponse("pong"), nil
+		return Text("pong"), nil
 	}, routeMW)
 
 	ctx, handler, err := router.Match("GET", "/ping")
@@ -393,7 +394,7 @@ func TestServeRequest(t *testing.T) {
 	router := NewRouter()
 
 	router.Post("/echo", func(ctx *Context) (*Response, error) {
-		return NewResponse(map[string]string{
+		return JSON(map[string]string{
 			"body": string(ctx.RequestBody),
 		}), nil
 	})
@@ -407,9 +408,9 @@ func TestServeRequest(t *testing.T) {
 		t.Fatalf("期望响应体非空")
 	}
 
-	bodyMap, ok := resp.Body.(map[string]string)
-	if !ok {
-		t.Fatalf("期望响应体为 map[string]string，实际类型 %T", resp.Body)
+	var bodyMap map[string]string
+	if err := json.Unmarshal(resp.Body, &bodyMap); err != nil {
+		t.Fatalf("解析响应体失败: %v", err)
 	}
 
 	if bodyMap["body"] != "hello" {
@@ -451,12 +452,8 @@ func TestServeRequestWithMiddleware(t *testing.T) {
 		t.Fatalf("expected text/plain; charset=utf-8, got %s", got)
 	}
 
-	bytesBody, err := resp.Bytes()
-	if err != nil {
-		t.Fatalf("期望序列化成功，实际错误: %v", err)
-	}
-	if string(bytesBody) != "ok" {
-		t.Fatalf("期望响应体 ok，实际 %s", string(bytesBody))
+	if string(resp.Body) != "ok" {
+		t.Fatalf("期望响应体 ok，实际 %s", string(resp.Body))
 	}
 
 	expectedOrder := []string{"mwRoot", "mwRoute", "handler"}

@@ -204,7 +204,9 @@ func decodeResponse(data []byte) (*router.Response, error) {
 		}
 	}
 
-	resp.Body = m["body"]
+	if body, ok := m["body"].([]byte); ok {
+		resp.Body = body
+	}
 	return resp, nil
 }
 

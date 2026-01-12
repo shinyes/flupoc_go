@@ -67,11 +67,11 @@ func (c *Context) Query(key string) string {
 type Response struct {
 	StatusCode int
 	Headers    map[string]string
-	Body       interface{}
+	Body       []byte
 }
 
 // NewResponse 使用给定 Body 创建 200 OK 响应。
-func NewResponse(body interface{}) *Response {
+func NewResponse(body []byte) *Response {
 	return &Response{
 		StatusCode: 200,
 		Headers:    make(map[string]string),
@@ -80,7 +80,7 @@ func NewResponse(body interface{}) *Response {
 }
 
 // OK 创建带可选 Body 的 200 响应。
-func OK(body interface{}) *Response {
+func OK(body []byte) *Response {
 	return NewResponse(body)
 }
 
@@ -89,13 +89,14 @@ func Error(statusCode int, message string) *Response {
 	return &Response{
 		StatusCode: statusCode,
 		Headers:    map[string]string{"Content-Type": "text/plain"},
-		Body:       message,
+		Body:       []byte(message),
 	}
 }
 
 // JSON 创建带 JSON 内容类型的 200 响应。
 func JSON(body interface{}) *Response {
-	resp := NewResponse(body)
+	data, _ := json.Marshal(body)
+	resp := NewResponse(data)
 	resp.Headers["Content-Type"] = "application/json"
 	return resp
 }
@@ -105,7 +106,7 @@ func Text(text string) *Response {
 	return &Response{
 		StatusCode: 200,
 		Headers:    map[string]string{"Content-Type": "text/plain; charset=utf-8"},
-		Body:       text,
+		Body:       []byte(text),
 	}
 }
 
@@ -145,22 +146,15 @@ func NewBytesResponse(data []byte) *Response {
 	return Bytes(data)
 }
 
-// Bytes converts the response body to bytes.
-func (resp *Response) Bytes() ([]byte, error) {
+// GetBody 返回响应体的字节数据。
+func (resp *Response) GetBody() ([]byte, error) {
 	if resp == nil {
 		return nil, fmt.Errorf("响应为空")
 	}
-
-	switch body := resp.Body.(type) {
-	case nil:
+	if resp.Body == nil {
 		return []byte{}, nil
-	case []byte:
-		return body, nil
-	case string:
-		return []byte(body), nil
-	default:
-		return json.Marshal(body)
 	}
+	return resp.Body, nil
 }
 
 // BytesToRequest decodes a Poculum-encoded request.

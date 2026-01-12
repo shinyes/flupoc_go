@@ -37,9 +37,5 @@ func main() {
 	}
 
 	fmt.Printf("状态码: %d\n", resp.StatusCode)
-	if bodyBytes, ok := resp.Body.([]byte); ok {
-		fmt.Printf("响应体: %s\n", bodyBytes)
-	} else {
-		fmt.Printf("响应体: %v\n", resp.Body)
-	}
+	fmt.Printf("响应体: %s\n", resp.Body)
 }
