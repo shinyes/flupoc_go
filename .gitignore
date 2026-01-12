@@ -1,2 +1,7 @@
 rootCA.crt
 rootCA.key
+
+cmd/echo_test/echo_client/echo_test_log.csv
+cmd/echo_test/echo_client/flupoc_echo_client_test_linux_arm64
+cmd/echo_test/echo_client/flupoc_echo_client_test_win_amd64.exe
+cmd/echo_test/echo_server/flupoc_echo_server_test_linux_amd64
