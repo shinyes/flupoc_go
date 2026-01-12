@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -104,7 +105,7 @@ func (r *Router) Match(method, requestURL string) (*Context, HandlerFunc, error)
 		if strings.EqualFold(route.Method, method) {
 			if pathParams := ExtractPathParams(route.Path, normalized); pathParams != nil {
 				queryParams := ParseQueryParams(queryString)
-				ctx := NewContext(nil)
+				ctx := NewContext(context.TODO())
 				ctx.PathParams = pathParams
 				ctx.QueryParams = queryParams
 				return ctx, route.wrapped, nil
