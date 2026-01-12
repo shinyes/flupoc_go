@@ -22,8 +22,8 @@ const (
 	// HeaderSize 表示帧头固定大小（8 字节）
 	HeaderSize = 8
 
-	// MaxDataLength 限制最大数据长度（10MB）
-	MaxDataLength = 10 << 20
+	// MaxDataLength 限制最大数据长度（100MB）
+	MaxDataLength = 100 << 20
 )
 
 // Header 表示 Flupoc 帧头结构。
