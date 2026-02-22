@@ -2,9 +2,9 @@
 package datagram
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/cykyes/flupoc-go/protocol/head"
 )
@@ -30,13 +30,13 @@ func New(channelID uint16, msgType uint8, data []byte) *Datagram {
 
 // Serialize 将数据报编码成字节流。
 func (d *Datagram) Serialize() []byte {
-	buf := make([]byte, head.HeaderSize+len(d.Data))
+	if d.Head == nil {
+		d.Head = &head.Header{Protocol: head.ProtocolID}
+	}
+	d.Head.DataLength = uint32(len(d.Data))
 
-	// 写头部
-	buf[0] = d.Head.Protocol
-	buf[1] = d.Head.Type
-	binary.BigEndian.PutUint16(buf[2:4], d.Head.ChannelID)
-	binary.BigEndian.PutUint32(buf[4:8], d.Head.DataLength)
+	buf := make([]byte, head.HeaderSize+len(d.Data))
+	copy(buf[:head.HeaderSize], d.Head.Serialize())
 
 	// 写数据
 	if len(d.Data) > 0 {
@@ -49,6 +49,7 @@ func (d *Datagram) Serialize() []byte {
 // Parse 从字节中解码数据报。
 func Parse(data []byte) (*Datagram, error) {
 	if len(data) < head.HeaderSize {
+		slog.Error("数据报过短", "实际长度：", len(data), "标准长度：", head.HeaderSize)
 		return nil, fmt.Errorf("数据报过短: %d 字节，至少需要 %d", len(data), head.HeaderSize)
 	}
 
@@ -59,6 +60,7 @@ func Parse(data []byte) (*Datagram, error) {
 
 	expectedLen := head.HeaderSize + int(h.DataLength)
 	if len(data) != expectedLen {
+		slog.Error("负载数据部分长度与帧头中给出的长度不匹配", "实际长度：", len(data), "期望长度：", expectedLen)
 		return nil, fmt.Errorf("数据报长度不匹配: 得到 %d，期望 %d", len(data), expectedLen)
 	}
 
@@ -81,6 +83,7 @@ func ReadFrom(r io.Reader) (*Datagram, error) {
 	if h.DataLength > 0 {
 		data = make([]byte, h.DataLength)
 		if _, err := io.ReadFull(r, data); err != nil {
+			slog.Error("读取数据负载出现错误")
 			return nil, fmt.Errorf("读取数据负载: %w", err)
 		}
 	}

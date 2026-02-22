@@ -51,9 +51,17 @@ func ServeTLS(ctx context.Context, cfg Config) ([]*Server, error) {
 
 	servers := make([]*Server, 0, len(cfg.Addrs))
 	for _, addr := range cfg.Addrs {
-		srv := &Server{addr: addr, tlsConfig: tlsCfg, connService: cfg.ConnService}
+		ln, err := tls.Listen("tcp", addr, tlsCfg)
+		if err != nil {
+			for _, started := range servers {
+				_ = started.Close()
+			}
+			return nil, fmt.Errorf("监听失败 (%s): %w", addr, err)
+		}
+
+		srv := &Server{addr: addr, tlsConfig: tlsCfg, listener: ln, connService: cfg.ConnService}
 		servers = append(servers, srv)
-		go srv.serve(ctx)
+		go srv.serve(ctx, ln)
 	}
 	return servers, nil
 }
@@ -83,18 +91,11 @@ func ListenAndServeTLS(cfg Config) error {
 	return closeErr
 }
 
-// serve 监听并处理传入连接。
-func (s *Server) serve(ctx context.Context) {
-	ln, err := tls.Listen("tcp", s.addr, s.tlsConfig)
-	if err != nil {
-		log.Printf("监听失败 (%s): %v", s.addr, err)
-		return
-	}
-	s.listener = ln
-
+// serve 处理传入连接。
+func (s *Server) serve(ctx context.Context, ln net.Listener) {
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close()
 	}()
 
 	for {

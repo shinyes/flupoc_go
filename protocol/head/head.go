@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 )
 
 // 协议常量
@@ -37,9 +38,11 @@ type Header struct {
 // Validate 检查帧头是否有效。
 func (h *Header) Validate() error {
 	if h.Protocol != ProtocolID {
+		slog.Error("检查协议帧头时发现非法协议号：", "协议号：", h.Protocol)
 		return fmt.Errorf("invalid protocol id: 0x%02X, expected 0x%02X", h.Protocol, ProtocolID)
 	}
 	if h.DataLength > MaxDataLength {
+		slog.Error("检查协议帧头时发现数据长度超出限制：", "数据长度：", h.DataLength)
 		return fmt.Errorf("data length %d exceeds maximum %d", h.DataLength, MaxDataLength)
 	}
 	return nil
@@ -58,6 +61,7 @@ func (h *Header) Serialize() []byte {
 // Parse 从字节解码帧头。
 func Parse(data []byte) (*Header, error) {
 	if len(data) < HeaderSize {
+		slog.Error("解析协议帧头时发现数据过短：", "数据长度：", len(data))
 		return nil, fmt.Errorf("header too short: %d bytes, need %d", len(data), HeaderSize)
 	}
 

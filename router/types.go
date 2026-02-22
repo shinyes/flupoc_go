@@ -93,9 +93,17 @@ func Error(statusCode int, message string) *Response {
 	}
 }
 
-// JSON 创建带 JSON 内容类型的 200 响应。
+// JSON 创建带 JSON 内容类型的响应。
+// 当 body 无法序列化为 JSON 时，返回 500 错误响应。
 func JSON(body interface{}) *Response {
-	data, _ := json.Marshal(body)
+	data, err := json.Marshal(body)
+	if err != nil {
+		return &Response{
+			StatusCode: 500,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Body:       []byte(`{"error":"json marshal failed"}`),
+		}
+	}
 	resp := NewResponse(data)
 	resp.Headers["Content-Type"] = "application/json"
 	return resp

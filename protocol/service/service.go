@@ -87,7 +87,8 @@ func (s *Service) Handle(ctx context.Context, conn net.Conn) error {
 
 		dg, err := datagram.ReadFrom(conn)
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() {
 				atomic.AddUint64(&s.idleClosed, 1)
 				return fmt.Errorf("连接空闲超时: %w", err)
 			}
