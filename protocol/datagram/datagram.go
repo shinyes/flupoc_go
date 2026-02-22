@@ -2,6 +2,7 @@
 package datagram
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log/slog"
@@ -33,10 +34,16 @@ func (d *Datagram) Serialize() []byte {
 	if d.Head == nil {
 		d.Head = &head.Header{Protocol: head.ProtocolID}
 	}
+	if d.Head.Protocol == 0 {
+		d.Head.Protocol = head.ProtocolID
+	}
 	d.Head.DataLength = uint32(len(d.Data))
 
 	buf := make([]byte, head.HeaderSize+len(d.Data))
-	copy(buf[:head.HeaderSize], d.Head.Serialize())
+	buf[0] = d.Head.Protocol
+	buf[1] = d.Head.Type
+	binary.BigEndian.PutUint16(buf[2:4], d.Head.ChannelID)
+	binary.BigEndian.PutUint32(buf[4:8], d.Head.DataLength)
 
 	// 写数据
 	if len(d.Data) > 0 {
@@ -44,6 +51,38 @@ func (d *Datagram) Serialize() []byte {
 	}
 
 	return buf
+}
+
+// WriteTo 将数据报直接写入 io.Writer，避免拼接整帧产生额外分配。
+func (d *Datagram) WriteTo(w io.Writer) (int64, error) {
+	if d.Head == nil {
+		d.Head = &head.Header{Protocol: head.ProtocolID}
+	}
+	if d.Head.Protocol == 0 {
+		d.Head.Protocol = head.ProtocolID
+	}
+	d.Head.DataLength = uint32(len(d.Data))
+
+	var hdr [head.HeaderSize]byte
+	hdr[0] = d.Head.Protocol
+	hdr[1] = d.Head.Type
+	binary.BigEndian.PutUint16(hdr[2:4], d.Head.ChannelID)
+	binary.BigEndian.PutUint32(hdr[4:8], d.Head.DataLength)
+
+	if len(d.Data) == 0 {
+		n, err := writeAll(w, hdr[:])
+		return int64(n), err
+	}
+
+	n1, err := writeAll(w, hdr[:])
+	if err != nil {
+		return int64(n1), err
+	}
+	n2, err := writeAll(w, d.Data)
+	if err != nil {
+		return int64(n1 + n2), err
+	}
+	return int64(n1 + n2), nil
 }
 
 // Parse 从字节中解码数据报。
@@ -89,4 +128,20 @@ func ReadFrom(r io.Reader) (*Datagram, error) {
 	}
 
 	return &Datagram{Head: h, Data: data}, nil
+}
+
+func writeAll(w io.Writer, data []byte) (int, error) {
+	total := 0
+	for len(data) > 0 {
+		n, err := w.Write(data)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if n <= 0 {
+			return total, io.ErrShortWrite
+		}
+		data = data[n:]
+	}
+	return total, nil
 }

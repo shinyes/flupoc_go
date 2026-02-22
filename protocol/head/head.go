@@ -81,9 +81,9 @@ func Parse(data []byte) (*Header, error) {
 
 // ReadFrom 从 io.Reader 中读取帧头。
 func ReadFrom(r io.Reader) (*Header, error) {
-	buf := make([]byte, HeaderSize)
-	if _, err := io.ReadFull(r, buf); err != nil {
+	var buf [HeaderSize]byte
+	if _, err := io.ReadFull(r, buf[:]); err != nil {
 		return nil, err
 	}
-	return Parse(buf)
+	return Parse(buf[:])
 }

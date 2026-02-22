@@ -84,7 +84,7 @@ func (c *Client) Do(addr, method, path string, body []byte) (*router.Response, e
 	if err := conn.SetWriteDeadline(time.Now().Add(c.opts.WriteTimeout)); err != nil {
 		return nil, err
 	}
-	if _, err := conn.Write(dg.Serialize()); err != nil {
+	if _, err := dg.WriteTo(conn); err != nil {
 		return nil, fmt.Errorf("发送: %w", err)
 	}
 
@@ -106,7 +106,7 @@ func (c *Client) Do(addr, method, path string, body []byte) (*router.Response, e
 			if err := conn.SetWriteDeadline(time.Now().Add(c.opts.WriteTimeout)); err != nil {
 				return nil, err
 			}
-			if _, err := conn.Write(pong.Serialize()); err != nil {
+			if _, err := pong.WriteTo(conn); err != nil {
 				return nil, fmt.Errorf("发送 PONG: %w", err)
 			}
 			continue
@@ -190,13 +190,14 @@ func decodeResponse(data []byte) (*router.Response, error) {
 		return nil, fmt.Errorf("响应结构错误: %T", decoded)
 	}
 
-	resp := &router.Response{Headers: map[string]string{}}
+	resp := &router.Response{}
 
 	if v, ok := m["status"]; ok {
 		resp.StatusCode = toInt(v)
 	}
 
 	if v, ok := m["headers"].(map[string]any); ok {
+		resp.Headers = make(map[string]string, len(v))
 		for k, val := range v {
 			if s, ok := val.(string); ok {
 				resp.Headers[k] = s

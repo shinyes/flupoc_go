@@ -99,7 +99,7 @@ func (s *Service) Handle(ctx context.Context, conn net.Conn) error {
 		}
 
 		if respDG := s.handleDatagram(dg); respDG != nil {
-			if _, err := conn.Write(respDG.Serialize()); err != nil {
+			if _, err := respDG.WriteTo(conn); err != nil {
 				return fmt.Errorf("写入响应: %w", err)
 			}
 		}
@@ -111,7 +111,7 @@ func (s *Service) pingLoop(ctx context.Context, conn net.Conn, stop <-chan struc
 	ticker := time.NewTicker(s.opts.PingInterval)
 	defer ticker.Stop()
 
-	pingData := datagram.New(0, head.MsgPing, nil).Serialize()
+	pingDG := datagram.New(0, head.MsgPing, nil)
 
 	for {
 		select {
@@ -120,7 +120,7 @@ func (s *Service) pingLoop(ctx context.Context, conn net.Conn, stop <-chan struc
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := conn.Write(pingData); err != nil {
+			if _, err := pingDG.WriteTo(conn); err != nil {
 				return
 			}
 		}
