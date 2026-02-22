@@ -192,8 +192,13 @@ func decodeResponse(data []byte) (*router.Response, error) {
 
 	resp := &router.Response{}
 
-	if v, ok := m["status"]; ok {
-		resp.StatusCode = toInt(v)
+	statusRaw, ok := m["status"]
+	if !ok {
+		return nil, fmt.Errorf("响应缺少 status 字段")
+	}
+	resp.StatusCode = toInt(statusRaw)
+	if resp.StatusCode <= 0 {
+		return nil, fmt.Errorf("响应 status 非法: %v", statusRaw)
 	}
 
 	if v, ok := m["headers"].(map[string]any); ok {

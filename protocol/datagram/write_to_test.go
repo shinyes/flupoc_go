@@ -85,3 +85,38 @@ func TestWriteToReturnsErrShortWriteOnZeroProgress(t *testing.T) {
 		t.Fatalf("期望 io.ErrShortWrite，实际=%v", err)
 	}
 }
+
+func TestWriteToDoesNotMutateHead(t *testing.T) {
+	dg := &Datagram{
+		Head: &head.Header{
+			Protocol:   0,
+			Type:       head.MsgRequest,
+			ChannelID:  3,
+			DataLength: 1234,
+		},
+		Data: []byte("abc"),
+	}
+
+	var out bytes.Buffer
+	if _, err := dg.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo 失败: %v", err)
+	}
+
+	if dg.Head.Protocol != 0 {
+		t.Fatalf("WriteTo 不应修改 Protocol，实际=%d", dg.Head.Protocol)
+	}
+	if dg.Head.DataLength != 1234 {
+		t.Fatalf("WriteTo 不应修改 DataLength，实际=%d", dg.Head.DataLength)
+	}
+
+	parsed, err := Parse(out.Bytes())
+	if err != nil {
+		t.Fatalf("解析失败: %v", err)
+	}
+	if parsed.Head.Protocol != head.ProtocolID {
+		t.Fatalf("输出协议号应回退到默认值，实际=%d", parsed.Head.Protocol)
+	}
+	if parsed.Head.DataLength != 3 {
+		t.Fatalf("输出长度应等于 payload 长度，实际=%d", parsed.Head.DataLength)
+	}
+}

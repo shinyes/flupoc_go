@@ -55,19 +55,23 @@ func (d *Datagram) Serialize() []byte {
 
 // WriteTo 将数据报直接写入 io.Writer，避免拼接整帧产生额外分配。
 func (d *Datagram) WriteTo(w io.Writer) (int64, error) {
-	if d.Head == nil {
-		d.Head = &head.Header{Protocol: head.ProtocolID}
+	var protocol uint8 = head.ProtocolID
+	var msgType uint8
+	var channelID uint16
+	if d.Head != nil {
+		msgType = d.Head.Type
+		channelID = d.Head.ChannelID
+		if d.Head.Protocol != 0 {
+			protocol = d.Head.Protocol
+		}
 	}
-	if d.Head.Protocol == 0 {
-		d.Head.Protocol = head.ProtocolID
-	}
-	d.Head.DataLength = uint32(len(d.Data))
+	dataLength := uint32(len(d.Data))
 
 	var hdr [head.HeaderSize]byte
-	hdr[0] = d.Head.Protocol
-	hdr[1] = d.Head.Type
-	binary.BigEndian.PutUint16(hdr[2:4], d.Head.ChannelID)
-	binary.BigEndian.PutUint32(hdr[4:8], d.Head.DataLength)
+	hdr[0] = protocol
+	hdr[1] = msgType
+	binary.BigEndian.PutUint16(hdr[2:4], channelID)
+	binary.BigEndian.PutUint32(hdr[4:8], dataLength)
 
 	if len(d.Data) == 0 {
 		n, err := writeAll(w, hdr[:])

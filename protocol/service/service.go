@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -69,9 +70,10 @@ func (s *Service) Stats() Stats {
 func (s *Service) Handle(ctx context.Context, conn net.Conn) error {
 	stopPing := make(chan struct{})
 	defer close(stopPing)
+	var writeMu sync.Mutex
 
 	if s.opts.PingInterval > 0 {
-		go s.pingLoop(ctx, conn, stopPing)
+		go s.pingLoop(ctx, conn, stopPing, &writeMu)
 	}
 
 	for {
@@ -99,7 +101,7 @@ func (s *Service) Handle(ctx context.Context, conn net.Conn) error {
 		}
 
 		if respDG := s.handleDatagram(dg); respDG != nil {
-			if _, err := respDG.WriteTo(conn); err != nil {
+			if err := writeDatagram(conn, respDG, &writeMu); err != nil {
 				return fmt.Errorf("写入响应: %w", err)
 			}
 		}
@@ -107,7 +109,7 @@ func (s *Service) Handle(ctx context.Context, conn net.Conn) error {
 }
 
 // pingLoop 定期发送心跳包。
-func (s *Service) pingLoop(ctx context.Context, conn net.Conn, stop <-chan struct{}) {
+func (s *Service) pingLoop(ctx context.Context, conn net.Conn, stop <-chan struct{}, writeMu *sync.Mutex) {
 	ticker := time.NewTicker(s.opts.PingInterval)
 	defer ticker.Stop()
 
@@ -120,11 +122,18 @@ func (s *Service) pingLoop(ctx context.Context, conn net.Conn, stop <-chan struc
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := pingDG.WriteTo(conn); err != nil {
+			if err := writeDatagram(conn, pingDG, writeMu); err != nil {
 				return
 			}
 		}
 	}
+}
+
+func writeDatagram(conn net.Conn, dg *datagram.Datagram, mu *sync.Mutex) error {
+	mu.Lock()
+	defer mu.Unlock()
+	_, err := dg.WriteTo(conn)
+	return err
 }
 
 // handleDatagram 根据消息类型处理数据报。
